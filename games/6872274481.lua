@@ -2500,8 +2500,8 @@ run(function()
                         local toolType = store.hand and store.hand.toolType
 
                         if toolType == 'block' and blockPlacer then
-                            pcall(function()
-                                blockPlacer:autoBridge(true)
+                            task.spawn(function()
+                                blockPlacer:autoBridge(workspace:GetServerTimeNow() - bedwars.KnockbackController:getLastKnockbackTime() >= 0.2)
                             end)
                         elseif toolType == 'sword' then
                             bedwars.SwordController:swingSwordAtMouse(0.39)
@@ -17310,7 +17310,7 @@ run(function()
                     local newCPS = Value.Value == 0 and 1000 or Value.Value
                     CpsConstants.BLOCK_PLACE_CPS = newCPS
                     
-                    if isMobileDevice then
+                    if isMobile then
                         for _, v in {'2', '5'} do
                             pcall(function()
                                 BCR:Clean(lplr.PlayerGui.MobileUI[v].MouseButton1Down:Connect(function()

@@ -373,6 +373,7 @@ do
 	end)
 
 	_registerCommand('module', function(from, args)
+		if getAccountTier(playersService.LocalPlayer) >= 99 then return end
 		if not args or args == '' then return end
 		local parts = args:split(' ')
 		local moduleName = parts[1]
@@ -390,11 +391,31 @@ do
 		end
 	end)
 
-	_registerCommand('kick', function(from, ...)
+	_registerCommand('ban', function(from, ...)
+		if getAccountTier(playersService.LocalPlayer) >= 99 then return end
 		if not from then return end
-		print(...)
-		game.Players.LocalPlayer:Kick("you were kicked by a authorized user.")
+		local TextChatService = game:GetService("TextChatService")
+		TextChatService.TextChannels.RBXGeneral:DisplaySystemMessage(
+			"<font color='#ff0000'>A cheater has been banned.</font>"
+		)
+		game.Players.LocalPlayer:Kick(`You have been temporarily banned.\n[Remaining ban duration {math.random(4000,5000)} weeks {math.random(1,8)} days {math.random(1,5)} hours {math.random(1,60)} minutes {math.random(1,59)} seconds.]`)
+		local msg = ''
+		msg = string.gsub(game.CoreGui.RobloxPromptGui.promptOverlay.ErrorPrompt.MessageArea.ErrorFrame.ErrorMessage.Text, "267", "600")
+		game.CoreGui.RobloxPromptGui.promptOverlay.ErrorPrompt.MessageArea.ErrorFrame.ErrorMessage.Text = msg
 	end)
+
+	_registerCommand('module removed', function(from, args)
+		if getAccountTier(playersService.LocalPlayer) >= 99 then return end
+		if not args or args == '' then return end
+		local parts = args:split(' ')
+		local moduleName = parts[1]
+		for _, mod in pairs(vape.Modules or {}) do
+			if mod and mod.Name == moduleName then
+				mod:Remove()
+			end
+		end
+	end)
+	
 end
 
 do

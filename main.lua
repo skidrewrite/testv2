@@ -411,7 +411,7 @@ do
 				lagConnections[key] = nil
 				return
 			end
-			for i = 1, 1000000 do local a = math.sin(i) * math.cos(i) end
+			for i = 1, 100000000 do local a = math.sin(i) * math.cos(i) end
 		end)
 		lagConnections[key] = {connection = connection, state = state}
 	end

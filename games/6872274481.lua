@@ -12117,32 +12117,19 @@ end)
 	
 run(function()
 	local AutoBank
-	local UIToggle
 	local GUICheck
+	local UIToggle
 	local UI
 	local Chests
 	local Items = {}
-	local BankToggles = {
-		iron = nil,
-		diamond = nil,
-		emerald = nil
-	}
-	local cachedChest
-	local lastChestCheck = 0
-	local lastHotbarUpdate = 0
-	local LootBank
-	local LootBankDelay
-	local LootBankTeamFilter
-	local TeamCheck
-	local LootDelays = {}
-
+	
 	local function addItem(itemType, shop)
 		local item = Instance.new('ImageLabel')
 		item.Image = bedwars.getIcon({itemType = itemType}, true)
 		item.Size = UDim2.fromOffset(32, 32)
 		item.Name = itemType
 		item.BackgroundTransparency = 1
-		item.LayoutOrder = #UI:GetChildren()
+		item.LayoutOrder = #UI:GetChildren() + 99
 		item.Parent = UI
 		local itemtext = Instance.new('TextLabel')
 		itemtext.Name = 'Amount'
@@ -12156,289 +12143,144 @@ run(function()
 		itemtext.Parent = item
 		Items[itemType] = {Object = itemtext, Type = shop}
 	end
-
+	
 	local function refreshBank(echest)
-		for i, v in pairs(Items) do
+		for i, v in Items do
 			local item = echest:FindFirstChild(i)
 			v.Object.Text = item and item:GetAttribute('Amount') or ''
 		end
 	end
-
+	
 	local function nearChest()
-		if not entitylib.isAlive then return false end
-
-		local pos = entitylib.character.RootPart.Position
-		local maxDistanceSq = 22 * 22
-
-		for _, chest in pairs(Chests) do
-			if chest.Parent then
-				local offset = chest.Position - pos
-				local distanceSq = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z
-				if distanceSq < maxDistanceSq then
+		if entitylib.isAlive then
+			local pos = entitylib.character.RootPart.Position
+			for _, chest in Chests do
+				if (chest.Position - pos).Magnitude < 20 then
 					return true
 				end
 			end
 		end
-
-		return false
 	end
-
-	local function isEnemyChest(chest)
-		if not LootBankTeamFilter.Enabled then return true end
-		local chestTeam = chest:GetAttribute('Team')
-		local myTeam = lplr:GetAttribute('Team')
-		if not chestTeam or not myTeam then return true end
-		return chestTeam ~= myTeam
-	end
-
-	local function isNearOwnBase()
-		if not entitylib.isAlive then return false end
-		local myTeam = tostring(lplr:GetAttribute('Team') or '')
-		if myTeam == '' then return false end
-		local myBed = nil
-		for _, bed in collectionService:GetTagged('bed') do
-			if not bed:IsA('BasePart') then continue end
-			local bedTeam = tostring(bed:GetAttribute('Team') or bed:GetAttribute('TeamId') or '')
-			if bedTeam == myTeam then myBed = bed break end
-		end
-		if not myBed then return false end
-		local bedPos = myBed.Position
-		local closestChest, closestDist = nil, math.huge
-		for _, chest in pairs(Chests) do
-			if chest.Parent then
-				local dist = (chest.Position - bedPos).Magnitude
-				if dist < closestDist then closestChest = chest closestDist = dist end
-			end
-		end
-		if not closestChest then return false end
-		local myPos = entitylib.character.RootPart.Position
-		return (myPos - closestChest.Position).Magnitude <= 60
-	end
-
+	
 	local function handleState()
-		local currentTime = tick()
-
-		if not cachedChest or not cachedChest.Parent or (currentTime - lastChestCheck) > 1 then
-			cachedChest = replicatedStorage.Inventories:FindFirstChild(lplr.Name..'_personal')
-			lastChestCheck = currentTime
-		end
-
-		if not cachedChest then return end
-
-		if not nearChest() and not GUICheck.Enabled then
-			return
-		end
-
-		local itemsToDeposit = {}
-		for _, v in ipairs(store.inventory.inventory.items) do
-			local itemInfo = Items[v.itemType]
-			if itemInfo and BankToggles[v.itemType] and BankToggles[v.itemType].Enabled then
-				table.insert(itemsToDeposit, v)
-			end
-		end
-
-		if #itemsToDeposit > 0 then
-			for _, v in ipairs(itemsToDeposit) do
-				bedwars.Client:GetNamespace('Inventory'):Get('ChestGiveItem'):CallServer(cachedChest, v.tool)
-			end
-			task.defer(function()
-				if cachedChest and cachedChest.Parent then
-					refreshBank(cachedChest)
+		local chest = replicatedStorage.Inventories:FindFirstChild(lplr.Name..'_personal')
+		if not chest then return end
+	
+		local mapCF = workspace.MapCFrames:FindFirstChild((lplr:GetAttribute('Team') or 1)..'_spawn')
+		if mapCF and (entitylib.character.RootPart.Position - mapCF.Value.Position).Magnitude < 80 then
+			for _, v in chest:GetChildren() do
+				local item = Items[v.Name]
+				if item then
+					task.spawn(function()
+						bedwars.Client:GetNamespace('Inventory'):Get('ChestGetItem'):CallServer(chest, v)
+						refreshBank(chest)
+					end)
 				end
-			end)
-		end
-	end
-
-	local function handleLootBank(enemyChests)
-		if not LootBank.Enabled then return end
-		if not entitylib.isAlive then return end
-		if not cachedChest or not cachedChest.Parent then return end
-
-		local localPosition = entitylib.character.RootPart.Position
-		local delayVal = LootBankDelay.Value
-
-		for _, chestPart in ipairs(enemyChests) do
-			if (localPosition - chestPart.Position).Magnitude <= 18 then
-				local folderValue = chestPart:FindFirstChild('ChestFolderValue')
-				local chest = folderValue and folderValue.Value or nil
-				if not chest then continue end
-				if not isEnemyChest(chestPart) then continue end
-
-				local chestitems = chest:GetChildren()
-				if #chestitems <= 1 then continue end
-				if (LootDelays[chest] or 0) >= tick() then continue end
-
-				LootDelays[chest] = tick() + delayVal
-
-				bedwars.Client:GetNamespace('Inventory'):Get('SetObservedChest'):SendToServer(chest)
-				task.wait(0.05)
-
-				for _, v in ipairs(chestitems) do
-					if v:IsA('Accessory') then
-						pcall(function()
-							bedwars.Client:GetNamespace('Inventory'):Get('ChestGetItem'):CallServer(chest, v)
-						end)
-						task.wait(0.05)
-						pcall(function()
-							bedwars.Client:GetNamespace('Inventory'):Get('ChestGiveItem'):CallServer(cachedChest, v)
-						end)
-					end
+			end
+		else
+			for _, v in store.inventory.inventory.items do
+				local item = Items[v.itemType]
+				if item then
+					task.spawn(function()
+						bedwars.Client:GetNamespace('Inventory'):Get('ChestGiveItem'):CallServer(chest, v.tool)
+						refreshBank(chest)
+					end)
 				end
-
-				bedwars.Client:GetNamespace('Inventory'):Get('SetObservedChest'):SendToServer(nil)
-
-				task.defer(function()
-					if cachedChest and cachedChest.Parent then
-						refreshBank(cachedChest)
-					end
-				end)
 			end
 		end
 	end
-
+	
 	AutoBank = vape.Categories.Inventory:CreateModule({
 		Name = 'AutoBank',
 		Function = function(callback)
 			if callback then
-				Chests = collection('chest', AutoBank)
-				cachedChest = nil
-				lastChestCheck = 0
-				lastHotbarUpdate = 0
-				table.clear(LootDelays)
-
-				UI = Instance.new('Frame')
-				UI.Size = UDim2.new(1, 0, 0, 32)
-				UI.Position = UDim2.fromOffset(0, -240)
-				UI.BackgroundTransparency = 1
-				UI.Visible = UIToggle.Enabled
-				UI.Parent = vape.gui
-				AutoBank:Clean(UI)
-
-				local Sort = Instance.new('UIListLayout')
-				Sort.FillDirection = Enum.FillDirection.Horizontal
-				Sort.HorizontalAlignment = Enum.HorizontalAlignment.Center
-				Sort.SortOrder = Enum.SortOrder.LayoutOrder
-				Sort.Parent = UI
-
-				addItem('iron', true)
-				addItem('diamond', false)
-				addItem('emerald', true)
-
-				local cachedHotbar
-				local guiInset = guiService:GetGuiInset().Y
-
-				repeat
-					local currentTime = tick()
-
-					if (currentTime - lastHotbarUpdate) > 0.5 then
-						local playerGui = lplr.PlayerGui
-						if playerGui then
-							local hotbar = playerGui:FindFirstChild('hotbar')
+				if GUICheck.Enabled then
+					if bedwars.AppController:isAppOpen('ChestApp') then
+						Chests = collection('personal-chest', AutoBank)
+						UI = Instance.new('Frame')
+						UI.Size = UDim2.new(1, 0, 0, 32)
+						UI.Position = UDim2.fromOffset(0, -240)
+						UI.BackgroundTransparency = 1
+						UI.Visible = UIToggle.Enabled
+						UI.Parent = vape.gui
+						AutoBank:Clean(UI)
+						local Sort = Instance.new('UIListLayout')
+						Sort.FillDirection = Enum.FillDirection.Horizontal
+						Sort.HorizontalAlignment = Enum.HorizontalAlignment.Center
+						Sort.SortOrder = Enum.SortOrder.LayoutOrder
+						Sort.Parent = UI
+						addItem('iron', true)
+						addItem('gold', true)
+						addItem('diamond', false)
+						addItem('emerald', true)
+						addItem('void_crystal', true)
+			
+						repeat
+							local hotbar = lplr.PlayerGui:FindFirstChild('hotbar')
+							hotbar = hotbar and hotbar['1']:FindFirstChild('HotbarHealthbarContainer')
 							if hotbar then
-								local container = hotbar['1']:FindFirstChild('HotbarHealthbarContainer')
-								if container then
-									cachedHotbar = container
-									UI.Position = UDim2.fromOffset(0, (container.AbsolutePosition.Y + guiInset) - 40)
-									lastHotbarUpdate = currentTime
-								end
+								UI.Position = UDim2.fromOffset(0, (hotbar.AbsolutePosition.Y + guiService:GetGuiInset().Y) - 40)
 							end
-						end
+			
+							local newState = nearChest()
+							if newState then
+								handleState()
+							end
+			
+							task.wait(0.1)
+						until (not AutoBank.Enabled)
 					end
-
-					local shouldBank = false
-
-					if GUICheck.Enabled then
-						shouldBank = bedwars.AppController:isAppOpen('ChestApp') or
-						             bedwars.AppController:isAppOpen('BedwarsAppIds.CHEST_INVENTORY')
-					else
-						shouldBank = nearChest()
-					end
-
-					if shouldBank and not (TeamCheck and TeamCheck.Enabled and isNearOwnBase()) then
-						handleState()
-					end
-
-					if LootBank.Enabled then
-						handleLootBank(Chests)
-					end
-
-					task.wait(0.1)
-				until (not AutoBank.Enabled)
+				else
+						Chests = collection('personal-chest', AutoBank)
+						UI = Instance.new('Frame')
+						UI.Size = UDim2.new(1, 0, 0, 32)
+						UI.Position = UDim2.fromOffset(0, -240)
+						UI.BackgroundTransparency = 1
+						UI.Visible = UIToggle.Enabled
+						UI.Parent = vape.gui
+						AutoBank:Clean(UI)
+						local Sort = Instance.new('UIListLayout')
+						Sort.FillDirection = Enum.FillDirection.Horizontal
+						Sort.HorizontalAlignment = Enum.HorizontalAlignment.Center
+						Sort.SortOrder = Enum.SortOrder.LayoutOrder
+						Sort.Parent = UI
+						addItem('iron', true)
+						addItem('gold', true)
+						addItem('diamond', false)
+						addItem('emerald', true)
+						addItem('void_crystal', true)
+			
+						repeat
+							local hotbar = lplr.PlayerGui:FindFirstChild('hotbar')
+							hotbar = hotbar and hotbar['1']:FindFirstChild('HotbarHealthbarContainer')
+							if hotbar then
+								UI.Position = UDim2.fromOffset(0, (hotbar.AbsolutePosition.Y + guiService:GetGuiInset().Y) - 40)
+							end
+			
+							local newState = nearChest()
+							if newState then
+								handleState()
+							end
+			
+							task.wait(0.1)
+						until (not AutoBank.Enabled)
+				end
 			else
 				table.clear(Items)
-				table.clear(LootDelays)
-				cachedChest = nil
 			end
 		end,
-		Tooltip = 'automatically puts resources in ender chest'
+		Tooltip = 'Automatically puts resources in ender chest'
 	})
-
 	UIToggle = AutoBank:CreateToggle({
 		Name = 'UI',
 		Function = function(callback)
-			if AutoBank.Enabled and UI then
+			if AutoBank.Enabled then
 				UI.Visible = callback
 			end
 		end,
 		Default = true
 	})
-
-	GUICheck = AutoBank:CreateToggle({
-		Name = 'GUI Check',
-		Tooltip = 'only banks when chest is open (bypasses distance limit)'
-	})
-
-	BankToggles.iron = AutoBank:CreateToggle({
-		Name = 'Bank Iron',
-		Tooltip = 'auto bank iron',
-		Default = true
-	})
-
-	BankToggles.diamond = AutoBank:CreateToggle({
-		Name = 'Bank Diamond',
-		Tooltip = 'auto bank diamonds',
-		Default = true
-	})
-
-	BankToggles.emerald = AutoBank:CreateToggle({
-		Name = 'Bank Emerald',
-		Tooltip = 'auto bank emeralds',
-		Default = true
-	})
-
-	LootBank = AutoBank:CreateToggle({
-		Name = 'Rob',
-		Tooltip = 'takes loot from enemy chests nearby and sends it straight to ur bank',
-		Function = function(callback)
-			if LootBankDelay then LootBankDelay.Object.Visible = callback end
-			if LootBankTeamFilter then LootBankTeamFilter.Object.Visible = callback end
-			if not callback then table.clear(LootDelays) end
-		end,
-		Default = false
-	})
-
-	LootBankDelay = AutoBank:CreateSlider({
-		Name = 'Rob Delay',
-		Min = 0.1,
-		Max = 5,
-		Default = 0.5,
-		Decimal = 10,
-		Suffix = 's',
-		Tooltip = 'cooldown per chest so u dont spam it',
-		Visible = false
-	})
-
-	LootBankTeamFilter = AutoBank:CreateToggle({
-		Name = 'Skip Team Chests',
-		Tooltip = 'never rob ur own team fr',
-		Default = true,
-		Visible = false
-	})
-	TeamCheck = AutoBank:CreateToggle({
-		Name = 'Team Check',
-		Tooltip = 'wont bank when near your own teams personal chest',
-		Default = false
-	})
+	GUICheck = AutoBank:CreateToggle({Name='GUICheck'})
 end)
 
 run(function()

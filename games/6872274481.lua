@@ -44222,3 +44222,297 @@ run(function()
     })
  
 end)
+
+
+run(function()
+	local CrateESP
+	local Range
+	local ShowEmpty
+	local TextScale
+	local UseTeamCheck
+	local ESPs = {}
+	local Tags = {'team_crate', 'crate', 'chest'}
+
+	local function destroyESP(obj)
+		local esp = ESPs[obj]
+		if esp then
+			esp:Destroy()
+			ESPs[obj] = nil
+		end
+	end
+
+	local function getAdornee(obj)
+		if obj:IsA('BasePart') then return obj end
+		if obj:IsA('Model') then
+			return obj.PrimaryPart or obj:FindFirstChildWhichIsA('BasePart', true)
+		end
+	end
+
+	local function isEnemyCrate(obj)
+		if not UseTeamCheck.Enabled then return true end
+		local myTeam = tostring(lplr:GetAttribute('Team') or '')
+		if myTeam == '' then return true end
+
+		local teamAttr = obj:GetAttribute('Team') or obj:GetAttribute('TeamId')
+		if teamAttr ~= nil then
+			return tostring(teamAttr) ~= myTeam
+		end
+
+		for _, v in obj:GetDescendants() do
+			local a = v:GetAttribute('Team') or v:GetAttribute('TeamId')
+			if a ~= nil then
+				return tostring(a) ~= myTeam
+			end
+		end
+
+		return true
+	end
+
+	local function resolveInventory(obj)
+		if not obj then return nil end
+
+		local direct = obj:FindFirstChild('ChestFolderValue')
+		if direct and direct.Value then return direct.Value end
+
+		local observed = obj:FindFirstChild('ObservedChestFolder')
+		if observed and observed.Value then return observed.Value end
+
+		for _, d in obj:GetDescendants() do
+			if d.Name == 'ChestFolderValue' and d.Value then
+				return d.Value
+			end
+			if d.Name == 'ObservedChestFolder' and d.Value then
+				return d.Value
+			end
+		end
+
+		local invName = obj.Name
+		local invs = replicatedStorage:FindFirstChild('Inventories')
+		if invs then
+			local hit = invs:FindFirstChild(invName)
+			if hit then return hit end
+		end
+
+		return nil
+	end
+
+	local function countItemsFromFolder(folder)
+		local counts = {}
+
+		if not folder then return counts end
+
+		for _, v in folder:GetChildren() do
+			local itemType = v.Name
+			local amount = v:GetAttribute('Amount')
+
+			if amount == nil then
+				if v:IsA('Accessory') or v:IsA('Tool') or v:IsA('Model') or v:IsA('Folder') then
+					amount = 1
+				end
+			end
+
+			if itemType and amount then
+				counts[itemType] = (counts[itemType] or 0) + amount
+			end
+		end
+
+		for _, d in folder:GetDescendants() do
+			local amt = d:GetAttribute('Amount')
+			if amt ~= nil then
+				local n = d.Name
+				counts[n] = math.max(counts[n] or 0, amt)
+			end
+		end
+
+		return counts
+	end
+
+	local function formatCounts(counts)
+		local order = {
+			'iron', 'gold', 'diamond', 'emerald', 'void_crystal',
+			'redstone', 'ammo', 'arrow'
+		}
+		local lines = {}
+
+		for _, name in order do
+			if counts[name] then
+				table.insert(lines, name..': '..tostring(counts[name]))
+				counts[name] = nil
+			end
+		end
+
+		for k, v in counts do
+			table.insert(lines, k..': '..tostring(v))
+		end
+
+		if #lines == 0 then
+			return ShowEmpty.Enabled and 'empty' or ''
+		end
+
+		return table.concat(lines, '\n')
+	end
+
+	local function makeESP(obj)
+		if ESPs[obj] then return ESPs[obj] end
+		local adornee = getAdornee(obj)
+		if not adornee then return end
+
+		local bill = Instance.new('BillboardGui')
+		bill.Name = 'CrateESP'
+		bill.Size = UDim2.fromOffset(180, 120)
+		bill.StudsOffset = Vector3.new(0, 4, 0)
+		bill.AlwaysOnTop = true
+		bill.Adornee = adornee
+		bill.Parent = vape.gui
+
+		local frame = Instance.new('Frame')
+		frame.Size = UDim2.fromScale(1, 1)
+		frame.BackgroundTransparency = 0.35
+		frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+		frame.BorderSizePixel = 0
+		frame.Parent = bill
+
+		local stroke = Instance.new('UIStroke')
+		stroke.Color = Color3.fromRGB(0, 255, 255)
+		stroke.Thickness = 1
+		stroke.Parent = frame
+
+		local text = Instance.new('TextLabel')
+		text.Name = 'Text'
+		text.Size = UDim2.fromScale(1, 1)
+		text.BackgroundTransparency = 1
+		text.TextColor3 = Color3.new(1, 1, 1)
+		text.TextStrokeTransparency = 0.3
+		text.TextXAlignment = Enum.TextXAlignment.Left
+		text.TextYAlignment = Enum.TextYAlignment.Top
+		text.Font = Enum.Font.Arial
+		text.TextSize = TextScale.Value
+		text.TextWrapped = true
+		text.RichText = false
+		text.Text = 'scanning...'
+		text.Parent = frame
+
+		ESPs[obj] = bill
+		CrateESP:Clean(bill)
+		return bill
+	end
+
+	local function findCrates()
+		local found = {}
+
+		for _, tag in Tags do
+			for _, obj in collectionService:GetTagged(tag) do
+				found[obj] = true
+			end
+		end
+
+		for _, obj in workspace:GetDescendants() do
+			local n = obj.Name:lower()
+			if (obj:IsA('BasePart') or obj:IsA('Model')) and (n:find('team_crate') or n:find('teamcrate') or n:find('crate')) then
+				found[obj] = true
+			end
+		end
+
+		local list = {}
+		for obj in found do
+			table.insert(list, obj)
+		end
+		return list
+	end
+
+	local function updateESP(obj)
+		if not obj or not obj.Parent then
+			destroyESP(obj)
+			return
+		end
+
+		local adornee = getAdornee(obj)
+		if not adornee then
+			destroyESP(obj)
+			return
+		end
+
+		if entitylib.isAlive then
+			local dist = (entitylib.character.RootPart.Position - adornee.Position).Magnitude
+			if dist > Range.Value then
+				destroyESP(obj)
+				return
+			end
+		end
+
+		if not isEnemyCrate(obj) then
+			destroyESP(obj)
+			return
+		end
+
+		local inv = resolveInventory(obj)
+		local counts = countItemsFromFolder(inv or obj)
+		local textOut = formatCounts(counts)
+
+		if textOut == '' then
+			destroyESP(obj)
+			return
+		end
+
+		local esp = makeESP(obj)
+		if not esp then return end
+		esp.Adornee = adornee
+		esp.Text.TextSize = TextScale.Value
+		esp.Text.Text = obj.Name..'\n'..textOut
+	end
+
+	CrateESP = vape.Categories.Render:CreateModule({
+		Name = 'CrateESP',
+		Function = function(callback)
+			if callback then
+				repeat
+					if entitylib.isAlive then
+						for _, obj in findCrates() do
+							pcall(updateESP, obj)
+						end
+
+						for obj in ESPs do
+							if not obj or not obj.Parent then
+								destroyESP(obj)
+							end
+						end
+					end
+					task.wait(0.3)
+				until not CrateESP.Enabled
+			else
+				for obj in ESPs do
+					destroyESP(obj)
+				end
+				table.clear(ESPs)
+			end
+		end,
+		Tooltip = 'Shows detected loot inside team crates.'
+	})
+
+	Range = CrateESP:CreateSlider({
+		Name = 'Range',
+		Min = 1,
+		Max = 150,
+		Default = 80,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+
+	TextScale = CrateESP:CreateSlider({
+		Name = 'TextSize',
+		Min = 10,
+		Max = 24,
+		Default = 14
+	})
+
+	ShowEmpty = CrateESP:CreateToggle({
+		Name = 'Show Empty',
+		Default = false
+	})
+
+	UseTeamCheck = CrateESP:CreateToggle({
+		Name = 'Team Check',
+		Default = false
+	})
+end)

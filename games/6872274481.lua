@@ -44664,8 +44664,14 @@ run(function()
 								memory = DropMemory[drop]
 							end
 
-							if OwnDrops.Enabled and not StealOthers.Enabled and not (memory and memory.fromSelf) then continue end
+							local fromSelf = memory and memory.fromSelf
+							if OwnDrops.Enabled and not StealOthers.Enabled and not fromSelf then continue end
 							if part.Position.Y > lowestPoint then continue end
+
+							if StealOthers.Enabled and not fromSelf then
+								moveDrop(drop, part, root.Position + (root.CFrame.LookVector * 2) + Vector3.new(0, 1.5, 0))
+								continue
+							end
 
 							tryPickup(drop, part, root)
 						end
@@ -44693,7 +44699,7 @@ run(function()
 	})
 	Pickup = VoidDropTP:CreateToggle({
 		Name = 'Auto Pickup',
-		Default = true,
+		Default = false,
 		Tooltip = 'Attempts to pick up recovered drops'
 	})
 	ServerCheck = VoidDropTP:CreateToggle({
@@ -44711,6 +44717,8 @@ run(function()
 		end
 	})
 end)
+
+
 run(function()
 	local LootGrabber
 	local Range

@@ -44307,3 +44307,144 @@ run(function()
 		Tooltip = 'Prints detailed item list to console'
 	})
 end)
+
+	local VoidDropTP
+	local Pickup
+	local OwnDrops
+	local ReturnHeight
+	local DropMemory = {}
+	local lastPickup = 0
+
+	local function getDropPart(drop)
+		if not drop then return end
+		if drop:IsA('BasePart') then return drop end
+		if drop:IsA('Model') then
+			return drop:FindFirstChild('Handle') or drop.PrimaryPart
+		end
+		return drop:FindFirstChild('Handle')
+	end
+
+	local function getLowestPoint()
+		local lowest = math.huge
+		for _, v in pairs(store.blocks) do
+			local point = (v.Position.Y - (v.Size.Y / 2)) - ReturnHeight.Value
+			if point < lowest then
+				lowest = point
+			end
+		end
+		return lowest == math.huge and -100 or lowest
+	end
+
+	local function rememberDrop(drop)
+		local part = getDropPart(drop)
+		if not part or not entitylib.isAlive then return end
+
+		local root = entitylib.character.RootPart
+		local fromSelf = (part.Position - root.Position).Magnitude <= 18 or (tick() - (drop:GetAttribute('ClientDropTime') or 0)) < 2
+		DropMemory[drop] = {
+			fromSelf = fromSelf,
+			lastSeen = tick()
+		}
+	end
+
+	local function tryPickup(drop, part)
+		if not Pickup.Enabled or (tick() - lastPickup) < 0.1 then return end
+		lastPickup = tick()
+
+		bedwars.Client:Get(remotes.PickupItem):CallServerAsync({
+			itemDrop = drop
+		}):andThen(function(suc)
+			if suc and bedwars.SoundList then
+				bedwars.SoundManager:playSound(bedwars.SoundList.PICKUP_ITEM_DROP)
+				local itemMeta = bedwars.ItemMeta[drop.Name]
+				local sound = itemMeta and itemMeta.pickUpOverlaySound
+				if sound then
+					bedwars.SoundManager:playSound(sound, {
+						position = part.Position,
+						volumeMultiplier = 0.9
+					})
+				end
+			end
+		end)
+	end
+
+	VoidDropTP = vape.Categories.Utility:CreateModule({
+		Name = 'VoidDropTP',
+		Function = function(callback)
+			if callback then
+				local drops = collection('ItemDrop', VoidDropTP, function(tab, obj)
+					table.insert(tab, obj)
+					rememberDrop(obj)
+				end, function(tab, obj)
+					DropMemory[obj] = nil
+					local ind = table.find(tab, obj)
+					if ind then
+						table.remove(tab, ind)
+					end
+				end)
+
+				repeat task.wait() until store.matchState ~= 0 or (not VoidDropTP.Enabled)
+				if not VoidDropTP.Enabled then return end
+
+				repeat
+					if entitylib.isAlive then
+						local root = entitylib.character.RootPart
+						local lowestPoint = getLowestPoint()
+
+						for _, drop in pairs(drops) do
+							local part = getDropPart(drop)
+							if not part then continue end
+
+							local memory = DropMemory[drop]
+							if not memory then
+								rememberDrop(drop)
+								memory = DropMemory[drop]
+							end
+
+							if OwnDrops.Enabled and not (memory and memory.fromSelf) then continue end
+							if part.Position.Y > lowestPoint then continue end
+
+							local target = root.Position + (root.CFrame.LookVector * 2) + Vector3.new(0, 1.5, 0)
+							pcall(function()
+								if drop:IsA('Model') then
+									drop:PivotTo(CFrame.new(target))
+								else
+									part.CFrame = CFrame.new(target)
+								end
+								part.AssemblyLinearVelocity = Vector3.zero
+								part.AssemblyAngularVelocity = Vector3.zero
+							end)
+
+							tryPickup(drop, part)
+						end
+					end
+					task.wait(0.05)
+				until not VoidDropTP.Enabled
+			else
+				table.clear(DropMemory)
+				lastPickup = 0
+			end
+		end,
+		Tooltip = 'Teleports your voided drops back to you'
+	})
+
+	OwnDrops = VoidDropTP:CreateToggle({
+		Name = 'Own Drops Only',
+		Default = true,
+		Tooltip = 'Only recover drops that appeared near you'
+	})
+	Pickup = VoidDropTP:CreateToggle({
+		Name = 'Auto Pickup',
+		Default = true,
+		Tooltip = 'Attempts to pick up recovered drops'
+	})
+	ReturnHeight = VoidDropTP:CreateSlider({
+		Name = 'Void Height',
+		Min = 20,
+		Max = 100,
+		Default = 50,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+end)

@@ -45495,6 +45495,13 @@ run(function()
 	local NoBowOffset
 	local savedOffsets = {}
 	local offsetKeys = {'RelX', 'RelY', 'RelZ'}
+	local oldCalculateImportantLaunchValues
+	local oldCreateLocalProjectile
+
+	local function isArrowProjectile(projectile)
+		projectile = tostring(projectile or ''):lower()
+		return projectile:find('arrow', 1, true) or projectile:find('headhunter', 1, true)
+	end
 
 	local function getBowConstants()
 		local constants = bedwars and bedwars.BowConstantsTable
@@ -45530,13 +45537,67 @@ run(function()
 		end
 	end
 
+	local function getCenteredShootPosition(position, velocity)
+		if typeof(position) ~= 'Vector3' then return position end
+		local camera = workspace.CurrentCamera
+		if not camera then return position end
+		local direction = typeof(velocity) == 'Vector3' and velocity.Magnitude > 0 and velocity.Unit or camera.CFrame.LookVector
+		local origin = camera.CFrame.Position
+		local closest = origin + (direction * math.max((position - origin):Dot(direction), 0))
+		return closest
+	end
+
 	NoBowOffset = vape.Categories.Combat:CreateModule({
 		Name = 'NoBowOffset',
 		Function = function(callback)
 			if callback then
 				zeroOffsets()
+				oldCalculateImportantLaunchValues = bedwars.ProjectileController.calculateImportantLaunchValues
+				bedwars.ProjectileController.calculateImportantLaunchValues = function(...)
+					local args = {...}
+					local projmeta = args[2]
+					local oldFromPositionOffset
+
+					if projmeta and isArrowProjectile(projmeta.projectile) and typeof(projmeta.fromPositionOffset) == 'Vector3' then
+						oldFromPositionOffset = projmeta.fromPositionOffset
+						projmeta.fromPositionOffset = Vector3.zero
+					end
+
+					local result = oldCalculateImportantLaunchValues(table.unpack(args))
+
+					if oldFromPositionOffset then
+						projmeta.fromPositionOffset = oldFromPositionOffset
+					end
+
+					if type(result) == 'table' and isArrowProjectile(projmeta and projmeta.projectile) then
+						result.positionFrom = getCenteredShootPosition(result.positionFrom, result.initialVelocity)
+					end
+
+					return result
+				end
+
+				oldCreateLocalProjectile = bedwars.ProjectileController.createLocalProjectile
+				bedwars.ProjectileController.createLocalProjectile = function(...)
+					local args = {...}
+					local projectile = args[3] or args[2]
+
+					if isArrowProjectile(projectile) then
+						args[4] = getCenteredShootPosition(args[4], args[6])
+					end
+
+					return oldCreateLocalProjectile(table.unpack(args))
+				end
+
 				NoBowOffset:Clean(runService.Heartbeat:Connect(zeroOffsets))
 			else
+				if oldCalculateImportantLaunchValues then
+					bedwars.ProjectileController.calculateImportantLaunchValues = oldCalculateImportantLaunchValues
+					oldCalculateImportantLaunchValues = nil
+				end
+				if oldCreateLocalProjectile then
+					bedwars.ProjectileController.createLocalProjectile = oldCreateLocalProjectile
+					oldCreateLocalProjectile = nil
+				end
 				restoreOffsets()
 			end
 		end,

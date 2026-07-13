@@ -13698,24 +13698,17 @@ run(function()
                                 else
                                     v.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                                 end
-                            elseif FrozenItems[v] and entitylib.character.Humanoid.Health <= 0 then
-                                -- If dead, unfreeze items
-                                FrozenItems[v] = nil
-                                if v:FindFirstChild('BodyVelocity') then
-                                    v.BodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                                else
-                                    v.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                                end
                             end
                         end
                     else
-                        -- Release all frozen items when dead
+                        -- Launch all frozen items upward when dead
                         for item, _ in pairs(FrozenItems) do
                             if item and item.Parent then
+                                local upwardVelocity = Vector3.new(0, 100, 0)
                                 if item:FindFirstChild('BodyVelocity') then
-                                    item.BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                                    item.BodyVelocity.Velocity = upwardVelocity
                                 else
-                                    item.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                    item.AssemblyLinearVelocity = upwardVelocity
                                 end
                             end
                         end
@@ -13758,7 +13751,7 @@ run(function()
                 FrozenItems = {}
             end
         end,
-        Tooltip = 'Freezes dropped items at a specific void height and returns them when disabled'
+        Tooltip = 'Freezes dropped items at a specific void height and launches them when you die'
     })
     
     Height = LootTP:CreateSlider({
